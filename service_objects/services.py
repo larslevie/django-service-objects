@@ -1,11 +1,13 @@
 import abc
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from django import forms
 from django.db import transaction, DEFAULT_DB_ALIAS
 from django.forms.forms import DeclarativeFieldsMetaclass
 from django.forms.models import ModelFormMetaclass
 import six
+from django.forms.utils import ErrorDict
 
 from .errors import InvalidInputsError
 
@@ -167,3 +169,42 @@ class ModelService(six.with_metaclass(ModelServiceMetaclass, Service)):
         })
     """
     pass
+
+
+@dataclass
+class Outcome:
+    result: any
+    errors: ErrorDict
+    is_valid: bool
+
+
+class OutcomeService(Service):
+    @classmethod
+    def execute(cls, inputs, files=None, **kwargs):
+        """
+        Function to be called from the outside to kick off the Service
+        functionality.
+
+        :param dictionary inputs: data parameters for Service, checked
+            against the fields defined on the Service class.
+
+        :param dictionary files: usually request's FILES dictionary or
+            None.
+
+        :param dictionary **kwargs: any additional parameters Service may
+            need, can be an empty dictionary
+        """
+        instance = cls(inputs, files, **kwargs)
+
+        try:
+            instance.service_clean()
+        except InvalidInputsError as e:
+            return Outcome(None, instance.errors, False)
+
+        with instance._process_context():
+            result = instance.process()
+
+            if instance.errors:
+                return Outcome(None, instance.errors, False)
+            else:
+                return Outcome(result, ErrorDict(), True)
